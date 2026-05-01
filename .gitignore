@@ -1,0 +1,32 @@
+# ── Model weights — NEVER commit these ───────────────────────────────────────
+models/*.pth
+models/*.pt
+models/*.pkl
+
+# ── Sample data ───────────────────────────────────────────────────────────────
+# Commit sample .npy files ONLY if they are from the public PhysioNet test set
+# and have been confirmed as safe to share. Default: ignore everything.
+samples/*.npy
+samples/*.txt
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+*.egg
+
+# ── Environments ──────────────────────────────────────────────────────────────
+.env
+.venv/
+venv/
+env/
+
+# ── Streamlit cache ───────────────────────────────────────────────────────────
+.streamlit/
+
+# ── OS ────────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
