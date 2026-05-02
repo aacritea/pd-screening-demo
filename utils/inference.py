@@ -12,66 +12,50 @@ def _to_numpy(t: torch.Tensor) -> np.ndarray:
     return t.detach().cpu().numpy()
 
 
-def run_voice_inference(
-    model: PDMultimodalModel,
-    voice_tensor: torch.Tensor,
-) -> dict:
-    """
-    Returns:
-        prob      : float — PD probability
-        label     : str   — "Parkinson's Detected" / "Healthy"
-        confidence: float — probability of the predicted class
-        alpha_v   : float — attention weight for voice (always ~1.0 in voice-only)
-        alpha_g   : float — attention weight for gait  (always ~0.0 in voice-only)
-    """
+def run_voice_inference(model: PDMultimodalModel, voice_tensor: torch.Tensor) -> dict:
     with torch.no_grad():
-        prob, alpha_v, alpha_g = model(
-            voice_features=voice_tensor, mode="voice"
-        )
-    prob_val = float(prob.mean())
-    return _build_result(prob_val, float(alpha_v.mean()), float(alpha_g.mean()))
+        logits, weights = model(voice_input=voice_tensor, mode="voice", return_attention=True)
+    prob = float(torch.sigmoid(logits).mean())
+    av   = float(weights[:, 0].mean())
+    ag   = float(weights[:, 1].mean())
+    return _build_result(prob, av, ag)
 
 
-def run_gait_inference(
-    model: PDMultimodalModel,
-    gait_tensor: torch.Tensor,
-) -> dict:
+def run_gait_inference(model: PDMultimodalModel, gait_tensor: torch.Tensor) -> dict:
     with torch.no_grad():
-        prob, alpha_v, alpha_g = model(
-            gait_signal=gait_tensor, mode="gait"
-        )
-    prob_val = float(prob.mean())
-    return _build_result(prob_val, float(alpha_v.mean()), float(alpha_g.mean()))
+        logits, weights = model(gait_input=gait_tensor, mode="gait", return_attention=True)
+    prob = float(torch.sigmoid(logits).mean())
+    av   = float(weights[:, 0].mean())
+    ag   = float(weights[:, 1].mean())
+    return _build_result(prob, av, ag)
 
 
 def run_multimodal_inference(
     model: PDMultimodalModel,
     voice_tensor: torch.Tensor,
     gait_tensor:  torch.Tensor,
-    mode: str = "both",           # "both" | "voice" | "gait"
+    mode: str = "both",
 ) -> dict:
-    """
-    mode controls modality dropout simulation:
-        "both"  — normal multimodal inference
-        "voice" — gait embedding zeroed (dropout simulation)
-        "gait"  — voice embedding zeroed (dropout simulation)
-    """
-    # For multimodal: broadcast voice features across all gait windows
-    N_windows = gait_tensor.shape[0]
+    N_windows       = gait_tensor.shape[0]
     voice_broadcast = voice_tensor.expand(N_windows, -1)
 
     with torch.no_grad():
-        prob, alpha_v, alpha_g = model(
-            voice_features=voice_broadcast,
-            gait_signal=gait_tensor,
+        logits, weights = model(
+            voice_input=voice_broadcast,
+            gait_input=gait_tensor,
             mode=mode,
+            return_attention=True,
         )
 
-    prob_val  = float(prob.mean())
-    av        = float(alpha_v.mean())
-    ag        = float(alpha_g.mean())
-    result    = _build_result(prob_val, av, ag)
-    result["window_probs"]   = _to_numpy(prob)
+    probs   = torch.sigmoid(logits).squeeze(-1)
+    alpha_v = weights[:, 0]
+    alpha_g = weights[:, 1]
+
+    prob_val = float(probs.mean())
+    av       = float(alpha_v.mean())
+    ag       = float(alpha_g.mean())
+    result   = _build_result(prob_val, av, ag)
+    result["window_probs"]   = _to_numpy(probs)
     result["window_alpha_v"] = _to_numpy(alpha_v)
     result["window_alpha_g"] = _to_numpy(alpha_g)
     return result
