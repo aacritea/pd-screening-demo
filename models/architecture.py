@@ -43,13 +43,13 @@ class VoiceEncoder(nn.Module):
 class GaitEncoder(nn.Module):
     """
     GaitCNNEncoder — matches training code exactly.
-    in_channels=18 (PhysioNet has 18 columns after time col).
-    Conv blocks: 18→64→128→256→256, kernel 7→5→3→3 + MaxPool(2).
+    in_channels=19 (PhysioNet has 19 columns after time col).
+    Conv blocks: 19→64→128→256→256, kernel 7→5→3→3 + MaxPool(2).
     Global AdaptiveAvgPool → FC [256 → ReLU → Dropout → 128].
     Submodule name: model.gait_encoder
     Stored under keys: model.gait_encoder.conv_layers.* and model.gait_encoder.fc.*
     """
-    def __init__(self, in_channels: int = 18, embedding_dim: int = 128,
+    def __init__(self, in_channels: int = 19, embedding_dim: int = 128,
                  dropout: float = 0.3):
         super().__init__()
         self.conv_layers = nn.Sequential(
@@ -154,7 +154,7 @@ class PDMultimodalModel(nn.Module):
     def __init__(
         self,
         voice_input_dim:  int   = 22,
-        gait_in_channels: int   = 18,
+        gait_in_channels: int   = 19,
         embedding_dim:    int   = 128,
         fusion_hidden:    int   = 64,
         classifier_hidden:int   = 64,
