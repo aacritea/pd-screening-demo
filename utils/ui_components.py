@@ -96,7 +96,7 @@ def window_probability_chart(window_probs: np.ndarray) -> go.Figure:
         marker=dict(size=4),
         name="PD Probability",
         fill="tozeroy",
-        fillcolor=f"{PD_COLOR}22",
+        fillcolor="rgba(224,92,92,0.13)",
     ))
     fig.update_layout(
         title="Per-Window PD Probability (Gait Signal)",
