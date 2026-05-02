@@ -1,3 +1,13 @@
+---
+title: PD Screening Demo
+emoji: 🧠
+colorFrom: blue
+colorTo: red
+sdk: docker
+app_file: app.py
+pinned: false
+---
+
 # Parkinson's Disease Multimodal Screening — Interactive Research Demo
 
 > **⚠️ Research demonstration only. Not a clinical tool.**
