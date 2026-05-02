@@ -23,28 +23,22 @@ STRIDE      = 128
 
 
 def load_and_window(filepath: Path) -> np.ndarray:
-    """Load a PhysioNet .txt file and return windowed array (N, C, W)."""
-    data = np.loadtxt(filepath)
-    # PhysioNet files: first column is time, rest are sensor channels
-    # Keep ALL sensor columns (don't assume exact count)
-    signal = data[:, 1:].astype(np.float32)  # drop time col only
-
-    # Pad or trim to exactly 19 channels to match training
-    if signal.shape[1] < 19:
-        pad = np.zeros((signal.shape[0], 19 - signal.shape[1]), dtype=np.float32)
-        signal = np.concatenate([signal, pad], axis=1)
-    elif signal.shape[1] > 19:
-        signal = signal[:, :19]
+    """
+    Load a PhysioNet .txt file and return windowed array (N, 19, W).
+    Keeps ALL 19 columns including time — matches PhysioNetGaitDataset
+    in training which does np.loadtxt() without dropping any columns.
+    """
+    data = np.loadtxt(filepath).astype(np.float32)  # (T, 19) — all cols
 
     windows = []
-    T = len(signal)
+    T = len(data)
     start = 0
     while start + WINDOW_SIZE <= T:
-        w = signal[start : start + WINDOW_SIZE]   # (256, 19)
+        w = data[start : start + WINDOW_SIZE]   # (256, 19)
         mean = w.mean(axis=0, keepdims=True)
         std  = w.std(axis=0, keepdims=True) + 1e-8
         w    = (w - mean) / std
-        windows.append(w.T)                        # (19, 256)
+        windows.append(w.T)                      # (19, 256)
         start += STRIDE
 
     return np.stack(windows, axis=0).astype(np.float32)  # (N, 19, 256)

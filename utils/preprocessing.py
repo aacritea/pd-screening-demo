@@ -127,13 +127,11 @@ OVERLAP     = 0.5
 
 def load_physionet_gait(filepath: str | Path) -> np.ndarray:
     """
-    Loads a PhysioNet VGRF .txt file (tab-separated, 19 columns:
-    time + 8 left sensors + 8 right sensors + total).
-    Returns raw signal array of shape (T, 16), keeping sensors 1-16.
+    Loads a PhysioNet VGRF .txt file.
+    Keeps ALL 19 columns including time — matches training data exactly.
+    Returns raw signal array of shape (T, 19).
     """
-    data = np.loadtxt(filepath)
-    # Column 0 = time; columns 1-8 = left foot; 9-16 = right foot; 17 = total
-    return data[:, 1:17].astype(np.float32)
+    return np.loadtxt(filepath).astype(np.float32)
 
 
 def window_gait_signal(
