@@ -86,30 +86,22 @@ class GaitEncoder(nn.Module):
         return self.fc(x)             # (B, 128)
 
 
-# ── Attention-Based Fusion (matches ImprovedAttentionFusion from training) ─────
+# ── Attention-Based Fusion (matches AttentionFusion from training exactly) ─────
 class AttentionFusion(nn.Module):
     """
-    Joint attention fusion — matches ImprovedAttentionFusion exactly.
-    Concatenates both embeddings, passes through attention_net, adds
-    learnable modality_bias, applies temperature scaling, then softmax.
-
-    Submodule name in ImprovedMultimodalClassifier: model.fusion
+    Simple attention fusion — matches the AttentionFusion class used in training.
+    Concatenates both embeddings → attention_net → softmax → weighted sum.
+    No temperature, no modality_bias — matches saved weights exactly.
+    Submodule name in MultimodalClassifier: model.fusion
     """
     def __init__(
         self,
         embedding_dim:    int   = 128,
         hidden_dim:       int   = 64,
         modality_dropout: float = 0.0,
-        init_temperature: float = 1.0,
-        init_bias: list | None  = None,
     ):
         super().__init__()
         self.modality_dropout = modality_dropout
-
-        self.temperature   = nn.Parameter(torch.tensor(init_temperature))
-        init_bias          = init_bias or [0.0, 0.0]
-        self.modality_bias = nn.Parameter(torch.tensor(init_bias, dtype=torch.float32))
-
         self.attention_net = nn.Sequential(
             nn.Linear(embedding_dim * 2, hidden_dim),
             nn.Tanh(),
@@ -118,21 +110,11 @@ class AttentionFusion(nn.Module):
         self.softmax = nn.Softmax(dim=1)
 
     def forward(self, e_v: torch.Tensor, e_g: torch.Tensor):
-        """
-        Returns:
-            fused  : (B, embedding_dim)
-            alpha_v: (B,) — attention weight for voice
-            alpha_g: (B,) — attention weight for gait
-        """
-        combined = torch.cat([e_v, e_g], dim=1)             # (B, 256)
-        scores   = self.attention_net(combined)              # (B, 2)
-        scores   = scores + self.modality_bias
-        temp     = self.temperature.clamp(min=0.1, max=10.0)
-        scores   = scores / temp
-        weights  = self.softmax(scores)                      # (B, 2)
+        combined = torch.cat([e_v, e_g], dim=1)
+        weights  = self.softmax(self.attention_net(combined))   # (B, 2)
         alpha_v, alpha_g = weights[:, 0], weights[:, 1]
         fused = alpha_v.unsqueeze(1) * e_v + alpha_g.unsqueeze(1) * e_g
-        return fused, alpha_v, alpha_g
+        return fused, weights
 
 
 # ── Classification Head ────────────────────────────────────────────────────────
@@ -218,11 +200,10 @@ class PDMultimodalModel(nn.Module):
             elif e_g.shape[0] == 1:
                 e_g = e_g.expand(e_v.shape[0], -1)
 
-        fused, alpha_v, alpha_g = self.fusion(e_v, e_g)
+        fused, weights = self.fusion(e_v, e_g)
         logits = self.classifier(fused)          # (B, 1)
 
         if return_attention:
-            weights = torch.stack([alpha_v, alpha_g], dim=1)   # (B, 2)
             return logits, weights
         return logits
 
