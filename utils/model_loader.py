@@ -17,8 +17,8 @@ These files are in .gitignore and must never be committed.
 """
 
 from pathlib import Path
+import numpy as np
 import torch
-import joblib
 import streamlit as st
 
 from models.architecture import (
@@ -72,14 +72,15 @@ def load_full_model() -> PDMultimodalModel | None:
 @st.cache_resource(show_spinner="Loading scalers…")
 def load_scalers():
     """
-    Returns (voice_scaler, gait_scaler).
-    Returns (None, None) if scaler files are not present.
+    Returns (voice_scaler, None).
+    Voice scaler is stored as scaler_params.npy (mean + scale arrays).
+    Gait uses per-window normalization — no scaler needed.
     """
-    v_path = MODELS_DIR / "scaler_voice.pkl"
-    g_path = MODELS_DIR / "scaler_gait.pkl"
-    voice_scaler = joblib.load(v_path) if v_path.exists() else None
-    gait_scaler  = joblib.load(g_path) if g_path.exists() else None
-    return voice_scaler, gait_scaler
+    npy_path = MODELS_DIR / "scaler_params.npy"
+    if not npy_path.exists():
+        return None, None
+    params = np.load(npy_path, allow_pickle=True).item()
+    return params, None
 
 
 def is_demo_mode() -> bool:

@@ -66,18 +66,29 @@ VOICE_FEATURE_RANGES = {
 
 # ── Voice Preprocessing ────────────────────────────────────────────────────────
 
+def _apply_scaler(arr: np.ndarray, scaler) -> np.ndarray:
+    """
+    Normalizes arr using scaler.
+    scaler can be:
+      - a dict with 'mean' and 'scale' keys (from scaler_params.npy)
+      - a sklearn StandardScaler object
+      - None (no-op)
+    """
+    if scaler is None:
+        return arr
+    if isinstance(scaler, dict):
+        return ((arr - scaler['mean']) / scaler['scale']).astype(np.float32)
+    return scaler.transform(arr).astype(np.float32)
+
+
 def preprocess_voice_csv(df: pd.DataFrame, scaler=None) -> torch.Tensor:
     """
     Accepts a DataFrame with UCI column names (with or without 'name'/'status').
     Returns a (N, 22) float32 tensor, normalized if scaler is provided.
     """
-    # Drop non-feature columns if present
     drop_cols = [c for c in ["name", "status"] if c in df.columns]
     features = df.drop(columns=drop_cols)[VOICE_FEATURE_NAMES].values.astype(np.float32)
-
-    if scaler is not None:
-        features = scaler.transform(features).astype(np.float32)
-
+    features = _apply_scaler(features, scaler)
     return torch.tensor(features)
 
 
@@ -88,10 +99,7 @@ def dict_to_voice_tensor(feature_dict: dict, scaler=None) -> torch.Tensor:
     arr = np.array(
         [feature_dict[f] for f in VOICE_FEATURE_NAMES], dtype=np.float32
     ).reshape(1, -1)
-
-    if scaler is not None:
-        arr = scaler.transform(arr).astype(np.float32)
-
+    arr = _apply_scaler(arr, scaler)
     return torch.tensor(arr)
 
 
