@@ -30,3 +30,6 @@ env/
 # ── OS ────────────────────────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
+models/scaler_mean.npy
+models/scaler_params.npy
+models/scaler_scale.npy
