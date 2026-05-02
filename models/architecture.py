@@ -16,76 +16,106 @@ import torch.nn.functional as F
 # ── Voice Encoder ──────────────────────────────────────────────────────────────
 class VoiceEncoder(nn.Module):
     """
-    3-layer MLP for tabular UCI Parkinson's acoustic features.
-    Architecture: [22 → 384 → 128 → 128] with ReLU, BatchNorm, Dropout(0.3)
-    Input: 22 acoustic features (jitter, shimmer, HNR, NHR, nonlinear dynamics)
-    Output: 128-dim embedding
+    VoiceMLPEncoder — matches training code exactly.
+    Architecture: [22 → 384 → ReLU → Drop → 384 → ReLU → Drop → 128 → ReLU]
+    No BatchNorm. Submodule name in MultimodalClassifier: model.voice_encoder
+    Stored under key: model.voice_encoder.encoder.*
     """
-    def __init__(self, input_dim: int = 22, embedding_dim: int = 128):
+    def __init__(self, input_dim: int = 22, embedding_dim: int = 128,
+                 hidden_dim: int = 384, dropout: float = 0.3):
         super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(input_dim, 384),
-            nn.BatchNorm1d(384),
+        self.encoder = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
             nn.ReLU(),
-            nn.Dropout(0.3),
-
-            nn.Linear(384, 128),
-            nn.BatchNorm1d(128),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim, hidden_dim),
             nn.ReLU(),
-            nn.Dropout(0.3),
-
-            nn.Linear(128, embedding_dim),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim, embedding_dim),
+            nn.ReLU(),
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.net(x)
+        return self.encoder(x)
 
 
 # ── Gait Encoder ───────────────────────────────────────────────────────────────
 class GaitEncoder(nn.Module):
     """
-    4-block 1D-CNN for PhysioNet VGRF temporal signals.
-    Kernel sizes: 7→5→3→3 | Filters: 64→128→256→256
-    Followed by Global Average Pooling → FC projection to embedding_dim.
-    Input: (batch, channels, time_steps) — window_size=256, 50% overlap
-    Output: 128-dim embedding
+    GaitCNNEncoder — matches training code exactly.
+    in_channels=19 (PhysioNet has 19 columns after time col).
+    Conv blocks: 19→64→128→256→256, kernel 7→5→3→3 + MaxPool(2).
+    Global AdaptiveAvgPool → FC [256 → ReLU → Dropout → 128].
+    Submodule name: model.gait_encoder
+    Stored under keys: model.gait_encoder.conv_layers.* and model.gait_encoder.fc.*
     """
-    def __init__(self, in_channels: int = 16, embedding_dim: int = 128):
+    def __init__(self, in_channels: int = 19, embedding_dim: int = 128,
+                 dropout: float = 0.3):
         super().__init__()
+        self.conv_layers = nn.Sequential(
+            nn.Conv1d(in_channels, 64, kernel_size=7, stride=1, padding=3),
+            nn.ReLU(),
+            nn.MaxPool1d(kernel_size=2, stride=2),
+            nn.Dropout(dropout),
 
-        def conv_block(in_ch, out_ch, kernel):
-            return nn.Sequential(
-                nn.Conv1d(in_ch, out_ch, kernel, padding=kernel // 2),
-                nn.BatchNorm1d(out_ch),
-                nn.ReLU(),
-                nn.MaxPool1d(2),
-            )
+            nn.Conv1d(64, 128, kernel_size=5, stride=1, padding=2),
+            nn.ReLU(),
+            nn.MaxPool1d(kernel_size=2, stride=2),
+            nn.Dropout(dropout),
 
-        self.conv_blocks = nn.Sequential(
-            conv_block(in_channels, 64, 7),
-            conv_block(64, 128, 5),
-            conv_block(128, 256, 3),
-            conv_block(256, 256, 3),
+            nn.Conv1d(128, 256, kernel_size=3, stride=1, padding=1),
+            nn.ReLU(),
+            nn.MaxPool1d(kernel_size=2, stride=2),
+            nn.Dropout(dropout),
+
+            nn.Conv1d(256, 256, kernel_size=3, stride=1, padding=1),
+            nn.ReLU(),
+            nn.MaxPool1d(kernel_size=2, stride=2),
         )
-        self.projection = nn.Linear(256, embedding_dim)
+        self.global_pool = nn.AdaptiveAvgPool1d(1)
+        self.fc = nn.Sequential(
+            nn.Linear(256, embedding_dim),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+        )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = self.conv_blocks(x)          # (B, 256, T')
-        x = x.mean(dim=-1)               # Global Average Pooling → (B, 256)
-        return self.projection(x)        # (B, embedding_dim)
+        x = self.conv_layers(x)       # (B, 256, T')
+        x = self.global_pool(x)       # (B, 256, 1)
+        x = x.squeeze(-1)             # (B, 256)
+        return self.fc(x)             # (B, 128)
 
 
-# ── Attention-Based Fusion ─────────────────────────────────────────────────────
+# ── Attention-Based Fusion (matches ImprovedAttentionFusion from training) ─────
 class AttentionFusion(nn.Module):
     """
-    Learns per-sample attention weights α_v and α_g over the two modalities.
-    Hidden attention dim d_a = 16.
-    f = α_v * e_v + α_g * e_g
+    Joint attention fusion — matches ImprovedAttentionFusion exactly.
+    Concatenates both embeddings, passes through attention_net, adds
+    learnable modality_bias, applies temperature scaling, then softmax.
+
+    Submodule name in ImprovedMultimodalClassifier: model.fusion
     """
-    def __init__(self, embedding_dim: int = 128, attention_dim: int = 16):
+    def __init__(
+        self,
+        embedding_dim:    int   = 128,
+        hidden_dim:       int   = 64,
+        modality_dropout: float = 0.0,
+        init_temperature: float = 1.0,
+        init_bias: list | None  = None,
+    ):
         super().__init__()
-        self.W_a  = nn.Linear(embedding_dim, attention_dim, bias=True)
-        self.w_a  = nn.Linear(attention_dim, 1, bias=False)
+        self.modality_dropout = modality_dropout
+
+        self.temperature   = nn.Parameter(torch.tensor(init_temperature))
+        init_bias          = init_bias or [0.0, 0.0]
+        self.modality_bias = nn.Parameter(torch.tensor(init_bias, dtype=torch.float32))
+
+        self.attention_net = nn.Sequential(
+            nn.Linear(embedding_dim * 2, hidden_dim),
+            nn.Tanh(),
+            nn.Linear(hidden_dim, 2),
+        )
+        self.softmax = nn.Softmax(dim=1)
 
     def forward(self, e_v: torch.Tensor, e_g: torch.Tensor):
         """
@@ -94,10 +124,12 @@ class AttentionFusion(nn.Module):
             alpha_v: (B,) — attention weight for voice
             alpha_g: (B,) — attention weight for gait
         """
-        s_v = self.w_a(torch.tanh(self.W_a(e_v))).squeeze(-1)   # (B,)
-        s_g = self.w_a(torch.tanh(self.W_a(e_g))).squeeze(-1)   # (B,)
-        scores  = torch.stack([s_v, s_g], dim=1)                 # (B, 2)
-        weights = F.softmax(scores, dim=1)                       # (B, 2)
+        combined = torch.cat([e_v, e_g], dim=1)             # (B, 256)
+        scores   = self.attention_net(combined)              # (B, 2)
+        scores   = scores + self.modality_bias
+        temp     = self.temperature.clamp(min=0.1, max=10.0)
+        scores   = scores / temp
+        weights  = self.softmax(scores)                      # (B, 2)
         alpha_v, alpha_g = weights[:, 0], weights[:, 1]
         fused = alpha_v.unsqueeze(1) * e_v + alpha_g.unsqueeze(1) * e_g
         return fused, alpha_v, alpha_g
@@ -124,59 +156,75 @@ class ClassificationHead(nn.Module):
 # ── Full Model ─────────────────────────────────────────────────────────────────
 class PDMultimodalModel(nn.Module):
     """
-    Full attention-based multimodal fusion model.
-    Supports three inference modes:
-        mode='both'  — voice + gait (default)
-        mode='voice' — voice only (gait embedding zeroed)
-        mode='gait'  — gait only  (voice embedding zeroed)
+    Matches MultimodalClassifier from training exactly.
+    Submodules:
+        self.voice_encoder  — VoiceEncoder
+        self.gait_encoder   — GaitEncoder
+        self.fusion         — AttentionFusion
+        self.classifier     — nn.Sequential [128→64→ReLU→Drop→1]
+
+    forward(voice, gait, return_attention=False)
+        → logits (B,1) [raw, apply sigmoid for probabilities]
+        or (logits, attention_weights (B,2)) if return_attention=True
+
+    Call model.eval() before inference. Use torch.sigmoid(logits) for probs.
     """
     def __init__(
         self,
-        voice_input_dim: int = 22,
-        gait_in_channels: int = 16,
-        embedding_dim: int = 128,
-        attention_dim: int = 16,
+        voice_input_dim:  int   = 22,
+        gait_in_channels: int   = 19,
+        embedding_dim:    int   = 128,
+        fusion_hidden:    int   = 64,
+        classifier_hidden:int   = 64,
+        dropout:          float = 0.3,
+        modality_dropout: float = 0.0,
     ):
         super().__init__()
-        self.voice_encoder   = VoiceEncoder(voice_input_dim, embedding_dim)
-        self.gait_encoder    = GaitEncoder(gait_in_channels, embedding_dim)
-        self.attention_fusion = AttentionFusion(embedding_dim, attention_dim)
-        self.classifier      = ClassificationHead(embedding_dim)
+        self.voice_encoder = VoiceEncoder(voice_input_dim, embedding_dim, dropout=dropout)
+        self.gait_encoder  = GaitEncoder(gait_in_channels, embedding_dim, dropout=dropout)
+        self.fusion        = AttentionFusion(embedding_dim, fusion_hidden, modality_dropout)
+        self.classifier    = nn.Sequential(
+            nn.Linear(embedding_dim, classifier_hidden),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(classifier_hidden, 1),
+        )
 
     def forward(
         self,
-        voice_features: torch.Tensor | None = None,
-        gait_signal:    torch.Tensor | None = None,
-        mode: str = "both",
+        voice_input: torch.Tensor | None = None,
+        gait_input:  torch.Tensor | None = None,
+        return_attention: bool = False,
+        mode: str = "both",           # "both" | "voice" | "gait"
     ):
-        """
-        Returns:
-            prob    : (B,) PD probability
-            alpha_v : (B,) voice attention weight
-            alpha_g : (B,) gait attention weight
-        """
         device = next(self.parameters()).device
 
-        if mode in ("both", "voice") and voice_features is not None:
-            e_v = self.voice_encoder(voice_features.to(device))
+        if mode in ("both", "voice") and voice_input is not None:
+            e_v = self.voice_encoder(voice_input.to(device))
         else:
-            # Zero embedding when modality is dropped
-            b = gait_signal.shape[0] if gait_signal is not None else 1
+            b   = gait_input.shape[0] if gait_input is not None else 1
             e_v = torch.zeros(b, 128, device=device)
 
-        if mode in ("both", "gait") and gait_signal is not None:
-            e_g = self.gait_encoder(gait_signal.to(device))
+        if mode in ("both", "gait") and gait_input is not None:
+            e_g = self.gait_encoder(gait_input.to(device))
         else:
-            b = voice_features.shape[0] if voice_features is not None else 1
+            b   = voice_input.shape[0] if voice_input is not None else 1
             e_g = torch.zeros(b, 128, device=device)
 
-        # Broadcast voice embedding across gait windows if batch sizes differ
+        # Broadcast if batch sizes differ (voice=1 sample, gait=N windows)
         if e_v.shape[0] != e_g.shape[0]:
             if e_v.shape[0] == 1:
                 e_v = e_v.expand(e_g.shape[0], -1)
             elif e_g.shape[0] == 1:
                 e_g = e_g.expand(e_v.shape[0], -1)
 
-        fused, alpha_v, alpha_g = self.attention_fusion(e_v, e_g)
-        prob = self.classifier(fused)
-        return prob, alpha_v, alpha_g
+        fused, alpha_v, alpha_g = self.fusion(e_v, e_g)
+        logits = self.classifier(fused)          # (B, 1)
+
+        if return_attention:
+            weights = torch.stack([alpha_v, alpha_g], dim=1)   # (B, 2)
+            return logits, weights
+        return logits
+
+    def predict_proba(self, voice_input, gait_input):
+        return torch.sigmoid(self.forward(voice_input, gait_input))
