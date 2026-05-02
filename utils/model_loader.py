@@ -25,7 +25,6 @@ from models.architecture import (
     VoiceEncoder,
     GaitEncoder,
     AttentionFusion,
-    ClassificationHead,
     PDMultimodalModel,
 )
 
@@ -59,7 +58,7 @@ def load_full_model() -> PDMultimodalModel | None:
     model.gait_encoder.load_state_dict(
         torch.load(MODELS_DIR / "gait_encoder.pth", map_location=DEVICE)
     )
-    model.attention_fusion.load_state_dict(
+    model.fusion.load_state_dict(
         torch.load(MODELS_DIR / "attention_module.pth", map_location=DEVICE)
     )
     model.classifier.load_state_dict(
