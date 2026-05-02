@@ -19,7 +19,7 @@ Interactive Streamlit app demonstrating the attention-based multimodal fusion fr
 > Aakriti Jain, Ujjawal Gaur, Pragya Singh — ICESAIA 2026 *(Under Review, IEEE)*
 
 **[Live Demo →](https://huggingface.co/spaces/aacritea/pd-screening-demo)**  
-*(Replace with your actual HF Spaces URL after deployment)*
+<!-- *(Replace with your actual HF Spaces URL after deployment)* -->
 
 ---
 
