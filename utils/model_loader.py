@@ -72,19 +72,10 @@ def load_full_model() -> PDMultimodalModel | None:
 @st.cache_resource(show_spinner="Loading scalers…")
 def load_scalers():
     """
-    Returns (voice_scaler, None).
-    Voice scaler stored as two plain .npy files: scaler_mean.npy + scaler_scale.npy
-    Gait uses per-window normalization — no scaler needed.
+    Scaler values are hardcoded in preprocessing.py (VOICE_SCALER).
+    This function is kept for API compatibility — returns (None, None).
     """
-    mean_path  = MODELS_DIR / "scaler_mean.npy"
-    scale_path = MODELS_DIR / "scaler_scale.npy"
-    if not mean_path.exists() or not scale_path.exists():
-        return None, None
-    scaler = {
-        'mean':  np.load(mean_path),
-        'scale': np.load(scale_path),
-    }
-    return scaler, None
+    return None, None
 
 
 def is_demo_mode() -> bool:

@@ -70,15 +70,32 @@ def _apply_scaler(arr: np.ndarray, scaler) -> np.ndarray:
     """
     Normalizes arr using scaler.
     scaler can be:
-      - a dict with 'mean' and 'scale' keys (from scaler_params.npy)
-      - a sklearn StandardScaler object
+      - a dict with 'mean' and 'scale' keys
       - None (no-op)
     """
     if scaler is None:
         return arr
-    if isinstance(scaler, dict):
-        return ((arr - scaler['mean']) / scaler['scale']).astype(np.float32)
-    return scaler.transform(arr).astype(np.float32)
+    return ((arr - scaler['mean']) / scaler['scale']).astype(np.float32)
+
+
+# Hardcoded scaler values — fitted on UCI Parkinson's training split (seed=42, 70/15/15)
+# No file needed, no pickle scan issues.
+VOICE_SCALER = {
+    'mean': np.array([
+        152.79699265, 196.13686029, 114.83619118,   0.00671228,   0.00004730,
+          0.00360074,   0.00371750,   0.01080287,   0.03202574,   0.30683824,
+          0.01687816,   0.01925485,   0.02619169,   0.05063434,   0.02835419,
+         21.41637500,   0.50614926,   0.72060746,  -5.63956206,   0.23060008,
+          2.41579560,   0.21295754
+    ], dtype=np.float32),
+    'scale': np.array([
+         41.22078003,  91.22686871,  42.80746401,   0.00541090,   0.00003788,
+          0.00333042,   0.00307705,   0.00999178,   0.02054315,   0.21460590,
+          0.01101347,   0.01306407,   0.01887056,   0.03303995,   0.04590663,
+          4.65812577,   0.10148282,   0.05608431,   1.09718537,   0.07939241,
+          0.40821517,   0.09242203
+    ], dtype=np.float32),
+}
 
 
 def preprocess_voice_csv(df: pd.DataFrame, scaler=None) -> torch.Tensor:
@@ -88,7 +105,7 @@ def preprocess_voice_csv(df: pd.DataFrame, scaler=None) -> torch.Tensor:
     """
     drop_cols = [c for c in ["name", "status"] if c in df.columns]
     features = df.drop(columns=drop_cols)[VOICE_FEATURE_NAMES].values.astype(np.float32)
-    features = _apply_scaler(features, scaler)
+    features = _apply_scaler(features, scaler or VOICE_SCALER)
     return torch.tensor(features)
 
 
@@ -99,7 +116,7 @@ def dict_to_voice_tensor(feature_dict: dict, scaler=None) -> torch.Tensor:
     arr = np.array(
         [feature_dict[f] for f in VOICE_FEATURE_NAMES], dtype=np.float32
     ).reshape(1, -1)
-    arr = _apply_scaler(arr, scaler)
+    arr = _apply_scaler(arr, scaler or VOICE_SCALER)
     return torch.tensor(arr)
 
 
