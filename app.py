@@ -451,6 +451,33 @@ elif page == "multimodal":
                         use_container_width=True,
                     )
 
+            # ── Attention insight ──────────────────────────────────────────
+            if mode == "both":
+                av_pct = result["alpha_v"] * 100
+                ag_pct = result["alpha_g"] * 100
+                if ag_pct > 65:
+                    st.info(
+                        f"**Gait-dominant prediction** — the model assigned "
+                        f"{ag_pct:.1f}% attention to gait and {av_pct:.1f}% to voice. "
+                        f"This is consistent with the paper's finding that gait signals "
+                        f"are more discriminative for PD (89.13% gait-only vs 86.67% voice-only). "
+                        f"When modalities conflict, the model trusts gait more.",
+                        icon="🔬",
+                    )
+                elif av_pct > 65:
+                    st.info(
+                        f"**Voice-dominant prediction** — the model assigned "
+                        f"{av_pct:.1f}% attention to voice and {ag_pct:.1f}% to gait. "
+                        f"The acoustic features were more informative for this sample.",
+                        icon="🔬",
+                    )
+                else:
+                    st.info(
+                        f"**Balanced fusion** — voice ({av_pct:.1f}%) and gait ({ag_pct:.1f}%) "
+                        f"contributed roughly equally. The model found both modalities informative.",
+                        icon="🔬",
+                    )
+
             # ── Mode-specific insight ──────────────────────────────────────
             if mode != "both":
                 dropped = "voice" if mode == "gait" else "gait"
